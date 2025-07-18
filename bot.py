@@ -1,41 +1,33 @@
 from flask import Flask, request, jsonify
-from sentence_transformers import SentenceTransformer, util
 import json
-import torch
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 app = Flask(__name__)
 
-# Load your data
+# Load App_data.json
 with open("App_data.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 
-# Extract file names
 file_names = [item["file_name"] for item in data]
 
-# Load model
-model = SentenceTransformer("all-MiniLM-L6-v2")
-
-# Create embeddings
-embeddings = model.encode(file_names, convert_to_tensor=True)
+# Build TF-IDF index
+vectorizer = TfidfVectorizer().fit(file_names)
+vectors = vectorizer.transform(file_names)
 
 @app.route("/search", methods=["GET"])
 def search():
     query = request.args.get("q", "").strip()
     if not query:
-        return jsonify({"error": "Missing ?q= parameter"}), 400
+        return jsonify({"error": "Missing query ?q="}), 400
 
-    # Embed the query
-    query_embedding = model.encode(query, convert_to_tensor=True)
-
-    # Calculate cosine similarity
-    similarities = util.cos_sim(query_embedding, embeddings)[0]
+    query_vec = vectorizer.transform([query])
+    scores = cosine_similarity(query_vec, vectors).flatten()
     top_k = 5
-    top_indices = torch.topk(similarities, top_k).indices
+    top_indices = scores.argsort()[::-1][:top_k]
 
-    results = [data[i] for i in top_indices]
-
+    results = [data[i] for i in top_indices if scores[i] > 0.1]
     return jsonify(results)
 
-# For local testing
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
